@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rl-alphabet-2048"
+version = "0.1.0"
+description = "Deep Q-Network agent that learns to play the Alphabet 2048 puzzle."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Alphabet 2048 RL Team" }
+]
+license = { text = "MIT" }
+keywords = ["reinforcement-learning", "gymnasium", "2048", "dqn"]
+dependencies = [
+    "gymnasium>=0.28",
+    "numpy>=1.23",
+    "torch>=2.0",
+    "tqdm>=4.65"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4"]
+web = [
+    "playwright>=1.40",
+    "selenium>=4.10"
+]
+
+[project.urls]
+Homepage = "https://github.com/RogueTex/2A1BGame"
+Repository = "https://github.com/RogueTex/2A1BGame"
