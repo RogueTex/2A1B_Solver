@@ -1,26 +1,38 @@
-# rl-alphabet-2048
+# 2A1B Solver
 
-Deep Q-Network (DQN) baseline that learns to play the Alphabet 2048 puzzle on a 4×4 grid. The package bundles a Gymnasium-compatible environment, PyTorch agent, CLI tooling for training/evaluation, and a Playwright bridge that can attach a trained policy to the hosted web game.
+This is my reinforcement learning solver for the Alphabet 2048-style 2A1B game.
+The project includes:
 
-## Environment
+- a Gymnasium environment for the game logic
+- a PyTorch DQN agent (Double DQN + optional dueling/prioritized replay)
+- train/eval scripts
+- a web bridge to control the live browser game
 
-- **Observation space**: `Box(low=0, high=26, shape=(4, 4), dtype=int32)` where each entry is a tile *level*: `0` for empty, `1 → A`, `2 → B`, …
-- **Optional encoding**: `rl2048.utils.encode_onehot(board, max_level)` returns `(max_level+1, 4, 4)` float32 planes for NN input.
-- **Rewards**:
-  - *Merge sum (default)* – adds the numeric value of every merged tile (e.g., merging `C` tiles yields `16` reward).
-  - *Log reward* – add the resulting level increment (e.g., `+3` when `C`→`D`). Toggle via `Alphabet2048Config.log_reward=True` or `--log-reward` CLI flag.
-- **Spawns**: After every valid move spawn a level-1 tile (`A`); with `spawn_b_probability` (default `0.1`) the spawn upgrades to level 2 (`B`) to mimic numeric 2048's occasional `4`.
-- **Termination**: Episode ends when no actions change the board. The info dict exposes `largest_level`, `score`, `score_numeric`, `valid_actions`, and an `invalid_action` flag.
+I also added a core enhancement stack for better training quality:
 
-## Agent
+- curriculum learning
+- reward shaping
+- decision diagnostics
 
-The default [DQN configuration](rl2048/dqn_agent.py) features:
+## Project layout
 
-- Double DQN with soft target updates (`τ = 0.005`).
-- Huber loss, Adam optimiser (`lr = 1e-4`), gradient clipping (`1.0`).
-- ε-greedy exploration decaying from `1.0 → 0.05` across 500k steps, honouring invalid-action masks (invalid Q-values get `-∞`).
-- Replay buffer (`capacity=200k`, `batch=1024`) with optional prioritized replay (`α=0.6`, `β: 0.4 → 1.0`) and dueling heads (toggle via CLI).
-- Input encoding: one-hot planes by default; log-scaled value features when `use_onehot=False`.
+```text
+2A1B_Solver/
+├── rl2048/
+│   ├── env_alphabet2048.py
+│   ├── dqn_agent.py
+│   ├── curriculum.py
+│   ├── reward_shaper.py
+│   ├── diagnostics.py
+│   └── scripts/
+│       ├── train_dqn.py
+│       └── eval_dqn.py
+├── scripts/
+│   ├── train_dqn.py
+│   ├── eval_dqn.py
+│   └── web_bridge_dom.py
+└── tests/
+```
 
 ## Setup
 
@@ -28,12 +40,18 @@ The default [DQN configuration](rl2048/dqn_agent.py) features:
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[test]
-# Optional extras for the bridge
-pip install .[web]
+```
+
+For browser play:
+
+```bash
+pip install -e .[web]
 playwright install chromium
 ```
 
-## Training
+## Train
+
+Baseline training:
 
 ```bash
 python -m rl2048.scripts.train_dqn \
@@ -45,15 +63,21 @@ python -m rl2048.scripts.train_dqn \
   --device cpu
 ```
 
-Logs report step rate, moving average return, and periodic evaluation summaries. Checkpoints are written to `checkpoints/` (`best.pt`, `final.pt`, and step-based snapshots). Training metrics for post-analysis land in `training_metrics.json`.
+Training with enhancements:
 
-### Safety & stability
+```bash
+python -m rl2048.scripts.train_dqn \
+  --total-steps 500000 \
+  --curriculum \
+  --curriculum-type adaptive \
+  --initial-density 2 \
+  --max-density 12 \
+  --use-reward-shaping
+```
 
-- Invalid actions incur a configurable penalty (default `-1`) and never spawn a tile.
-- Invalid-action masking keeps the policy from issuing dead inputs in both training and deployment.
-- Use a local clone of the Alphabet 2048 webpage if CORS or DOM changes break scraping; the bridge exposes the target URL as a flag.
+## Evaluate
 
-## Evaluation
+Standard eval:
 
 ```bash
 python -m rl2048.scripts.eval_dqn \
@@ -63,9 +87,17 @@ python -m rl2048.scripts.eval_dqn \
   --output eval_summary.json
 ```
 
-The script prints mean/median returns, average episode length, invalid-action rate, success rate for reaching a target letter, and produces a JSON report containing per-episode summaries plus a histogram of largest tiles.
+Eval with diagnostics output:
 
-## Driving the live game
+```bash
+python -m rl2048.scripts.eval_dqn \
+  --checkpoint checkpoints/best.pt \
+  --episodes 50 \
+  --save-diagnostics \
+  --diagnostics-output diagnostics.json
+```
+
+## Play on the live game page
 
 ```bash
 python -m rl2048.scripts.web_bridge_dom \
@@ -75,20 +107,15 @@ python -m rl2048.scripts.web_bridge_dom \
   --headless
 ```
 
-- Requires the optional `web` dependencies and a `playwright install chromium` run.
-- The bridge polls the DOM to read board letters, maps them to RL levels, masks invalid actions, and feeds the greedy policy back to the page.
-- If DOM parsing stops working, rerun with `--url` pointing at a local copy or extend the placeholder OCR fallback hook.
-
-## Testing
+## Tests
 
 ```bash
 pytest
 ```
 
-`tests/test_env.py` exercises spawning, invalid actions, tile merges, terminal detection, and masking. `tests/test_agent.py` checks network output shapes, action masking, and that a single optimisation step reduces TD error on a handcrafted batch.
+## Notes
 
-## Next steps
-
-- Integrate PPO or QR-DQN agents using the same environment.
-- Flesh out the OCR fallback to support canvas-based renderers.
-- Add curriculum schedules for reward shaping and spawn probabilities.
+- State is a `4x4` board with values `0..26` (`0` is empty, `1` is A, ...).
+- Actions use the project’s internal mapping (`0=up, 1=right, 2=down, 3=left`).
+- Invalid moves are masked during inference and penalized in training.
+- `rl2048/scripts/*` provides docs-style module entrypoints.

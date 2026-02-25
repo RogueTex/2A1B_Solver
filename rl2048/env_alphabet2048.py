@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -48,9 +48,15 @@ class Alphabet2048Env(gym.Env[np.ndarray, int]):
 
     metadata = {"render_modes": ["ansi"], "render_fps": 30}
 
-    def __init__(self, config: Alphabet2048Config | None = None):
+    def __init__(
+        self,
+        config: Alphabet2048Config | None = None,
+        *,
+        reward_shaper: Optional[object] = None,
+    ):
         super().__init__()
         self.config = config or Alphabet2048Config()
+        self.reward_shaper = reward_shaper
         self.board_size = self.config.board_size
         self.observation_space = gym.spaces.Box(
             low=0,
@@ -100,6 +106,7 @@ class Alphabet2048Env(gym.Env[np.ndarray, int]):
             info = self._info_dict(invalid_action=False)
             return self._board.copy(), 0.0, True, False, info
 
+        board_before = self._board.copy()
         next_board, value_reward, moved, merged_levels = slide_and_merge(self._board, action)
 
         if not moved:
@@ -119,12 +126,22 @@ class Alphabet2048Env(gym.Env[np.ndarray, int]):
 
         numeric_reward = float(value_reward)
         log_reward = float(sum(merged_levels))
-        reward = log_reward if self.config.log_reward else numeric_reward
+        base_reward = log_reward if self.config.log_reward else numeric_reward
+        terminated = not can_move(self._board)
+        reward = base_reward
+        if self.reward_shaper is not None:
+            reward = float(
+                self.reward_shaper.shape_reward(
+                    board_before=board_before,
+                    board_after=self._board.copy(),
+                    action=action,
+                    base_reward=base_reward,
+                    done=terminated,
+                )
+            )
 
         self._score += reward
         self._score_numeric += int(numeric_reward)
-
-        terminated = not can_move(self._board)
         info = self._info_dict(invalid_action=False)
         return self._board.copy(), reward, terminated, False, info
 

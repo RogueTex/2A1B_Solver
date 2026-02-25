@@ -1,0 +1,24 @@
+# Python build and cache artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Local training/evaluation artifacts
+checkpoints/
+smoke_checkpoints/
+*.eval.json
+*diagnostics*.json
+
+# Local OS/editor noise
+.DS_Store
+
+# Workspace-only planning/reference docs (not part of solver source)
+Instructions_Guides/

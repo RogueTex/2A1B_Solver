@@ -94,7 +94,7 @@ def test_mask_invalid_actions_matches_helper(env: Alphabet2048Env) -> None:
     )
     mask = utils.mask_invalid_actions(env._board)
     assert mask.dtype == bool
-    assert mask[0] is False  # up
-    assert mask[2] is False  # down
-    assert mask[1] is True   # right
-    assert mask[3] is True   # left
+    assert bool(mask[0]) is False  # up
+    assert bool(mask[2]) is False  # down
+    assert bool(mask[1]) is False  # right
+    assert bool(mask[3]) is True   # left

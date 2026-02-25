@@ -12,8 +12,10 @@ from typing import Dict, List
 import numpy as np
 
 from rl2048 import utils
+from rl2048.curriculum import CurriculumConfig, CurriculumEnv
 from rl2048.dqn_agent import DQNAgent, DQNConfig, Transition
 from rl2048.env_alphabet2048 import Alphabet2048Config, Alphabet2048Env
+from rl2048.reward_shaper import RewardShaper
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +45,31 @@ def parse_args() -> argparse.Namespace:
         help="Toggle dueling architecture",
     )
     parser.add_argument("--save-every", type=int, default=100_000, help="Save checkpoint every N steps (in addition to best)")
+    parser.add_argument(
+        "--curriculum",
+        dest="curriculum",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Enable curriculum environment reset density schedule",
+    )
+    parser.add_argument(
+        "--curriculum-type",
+        type=str,
+        default="adaptive",
+        choices=("linear", "exponential", "adaptive"),
+        help="Curriculum schedule type",
+    )
+    parser.add_argument("--initial-density", type=int, default=2, help="Initial prefilled tile density for curriculum")
+    parser.add_argument("--max-density", type=int, default=12, help="Maximum prefilled tile density for curriculum")
+    parser.add_argument("--use-reward-shaping", action="store_true", help="Enable auxiliary reward shaping")
+    parser.add_argument("--merge-bonus", type=float, default=0.05, help="Coefficient for merge-chain bonus")
+    parser.add_argument("--entropy-penalty", type=float, default=0.1, help="Coefficient for entropy penalty")
+    parser.add_argument(
+        "--merge-preservation",
+        type=float,
+        default=0.01,
+        help="Coefficient for preserving future merge opportunities",
+    )
     return parser.parse_args()
 
 
@@ -52,6 +79,7 @@ def evaluate_policy(
     *,
     base_seed: int,
     env_config: Alphabet2048Config,
+    reward_shaper: RewardShaper | None = None,
 ) -> Dict[str, float | Counter[str]]:
     rewards: List[float] = []
     lengths: List[int] = []
@@ -59,7 +87,7 @@ def evaluate_policy(
     invalid_counts: List[int] = []
 
     for idx in range(episodes):
-        eval_env = Alphabet2048Env(env_config)
+        eval_env = Alphabet2048Env(env_config, reward_shaper=reward_shaper)
         state, info = eval_env.reset(seed=base_seed + idx)
         done = False
         total_reward = 0.0
@@ -107,12 +135,31 @@ def main() -> None:
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     utils.seed_everything(args.seed)
 
+    reward_shaper = None
+    if args.use_reward_shaping:
+        reward_shaper = RewardShaper(
+            use_merge_bonus=True,
+            use_entropy_penalty=True,
+            use_merge_preservation=True,
+            merge_bonus_coef=args.merge_bonus,
+            entropy_penalty_coef=args.entropy_penalty,
+            merge_preservation_coef=args.merge_preservation,
+        )
+
     env_config = Alphabet2048Config(
         seed=args.seed,
         log_reward=args.log_reward,
         spawn_b_probability=args.spawn_b_prob,
     )
-    train_env = Alphabet2048Env(env_config)
+    if args.curriculum:
+        curriculum_config = CurriculumConfig(
+            initial_board_density=args.initial_density,
+            max_board_density=args.max_density,
+            schedule_type=args.curriculum_type,
+        )
+        train_env = CurriculumEnv(env_config, curriculum_config, reward_shaper=reward_shaper)
+    else:
+        train_env = Alphabet2048Env(env_config, reward_shaper=reward_shaper)
 
     agent_config = DQNConfig(
         board_size=train_env.board_size,
@@ -193,9 +240,12 @@ def main() -> None:
             steps_per_sec = delta_steps / delta_t
             avg_return = statistics.mean(rolling_returns) if rolling_returns else 0.0
             loss_val = float(latest_loss) if latest_loss is not None else float("nan")
+            curriculum_suffix = ""
+            if args.curriculum and isinstance(train_env, CurriculumEnv):
+                curriculum_suffix = f" curriculum_density={train_env.curriculum.current_density()}"
             print(
                 f"step={step:,} eps={agent._epsilon(step):.3f} loss={loss_val:.4f} "
-                f"avg_return={avg_return:.1f} steps/s={steps_per_sec:.1f}"
+                f"avg_return={avg_return:.1f} steps/s={steps_per_sec:.1f}{curriculum_suffix}"
             )
             last_log_time = now
             last_log_step = step
@@ -206,6 +256,7 @@ def main() -> None:
                 args.eval_episodes,
                 base_seed=args.seed + 1337 + step,
                 env_config=env_config,
+                reward_shaper=reward_shaper,
             )
             mean_return = eval_metrics["mean_return"]
             print(
