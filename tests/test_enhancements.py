@@ -92,3 +92,37 @@ def test_diagnostics_save_analysis(tmp_path) -> None:
     assert "failure_modes" in payload
     assert "regret_analysis" in payload
     assert payload["total_steps"] == 1
+
+
+
+def test_reward_shaper_empty_board() -> None:
+        """Reward shaper handles all-zero boards without error."""
+        shaper = RewardShaper(clip_abs=2.0)
+        empty = np.zeros((4, 4), dtype=np.int32)
+        value = shaper.shape_reward(
+            board_before=empty,
+            board_after=empty,
+            action=0,
+            base_reward=0.0,
+            done=False,
+        )
+        assert np.isfinite(value)
+
+
+def test_reward_shaper_negative_base_reward() -> None:
+        """Reward shaper handles negative base rewards and clips correctly."""
+        shaper = RewardShaper(
+            merge_bonus_coef=0.0,
+            entropy_penalty_coef=0.0,
+            merge_preservation_coef=0.0,
+            clip_abs=1.0,
+        )
+        board = np.zeros((4, 4), dtype=np.int32)
+        value = shaper.shape_reward(
+            board_before=board,
+            board_after=board,
+            action=0,
+            base_reward=-5.0,
+            done=False,
+        )
+        assert value == pytest.approx(-1.0)  # clipped at -clip_abs
