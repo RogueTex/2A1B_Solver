@@ -117,6 +117,28 @@ python -m rl2048.scripts.web_bridge_dom \
 pytest
 ```
 
+## Architecture
+
+The project is organised into four cooperating layers:
+
+| Layer | Module | Responsibility |
+|-------|--------|----------------|
+| **Environment** | `env_alphabet2048.py` | Gymnasium-compliant game logic, step/reset, invalid-move masking |
+| **Agent** | `dqn_agent.py` | Double DQN, optional dueling head, optional prioritised experience replay |
+| **Enhancement** | `curriculum.py`, `reward_shaper.py` | Board-density curriculum scheduling; shaped reward signal on top of base env rewards |
+| **Diagnostics** | `diagnostics.py` | Decision-point logging, Q-value confidence tracking, post-hoc JSON analysis |
+
+Data flows as follows during training:
+
+```
+Env.reset() → Board state
+  → Agent.select_action() → Action
+  → Env.step(action) → (next_state, base_reward, done, info)
+  → RewardShaper.shape_reward() → shaped_reward
+  → Agent.update() → gradient step
+  → Diagnostics.log_decision() → decision record
+```
+
 ## Notes
 
 - State is a `4x4` board with values `0..26` (`0` is empty, `1` is A, ...).
